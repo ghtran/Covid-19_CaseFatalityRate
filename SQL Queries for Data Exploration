@@ -1,0 +1,148 @@
+/*
+Covid 19 Data Exploration
+
+Skills used: Joins, CTE, Temp Tables, Windows Functions, Aggregate Functions, Creating View, Converting Data Types
+*/
+
+select *
+from [Personal Projects]..CovidDeaths
+order by 3,4
+
+select distinct continent, location
+from [Personal Projects]..CovidDeaths
+-- Running this query we can see that the location where continent is null then it is some for of grouping
+-- We need to add where continent is not null so the result doesn't include groupings that are present in location 
+
+--Select *
+--From [Personal Projects]..Covidvaccinations
+--Order by 3,4
+
+
+-- Covid Deaths
+-- Select Data that we are going to be using
+select Location, Date, Population, total_cases, total_deaths
+from [Personal Projects]..CovidDeaths
+order by 1,2
+
+-- Fatality rate if contracted covid, total_cases vs total_deaths
+select Location, Date, Population, Total_cases, Total_deaths, (total_deaths/total_cases)*100 as PercentDealiness
+from [Personal Projects]..CovidDeaths
+order by 1,2
+ 
+-- Fatality rate if contracted covid in the US
+select Location, Date, Population, Total_cases, Total_deaths, (total_deaths/total_cases)*100 as FatalityRate
+from [Personal Projects]..CovidDeaths
+where location='united states'
+and continent is not null
+order by 1,2
+
+-- Infection rate of Covid in the US, total_cases vs population
+select Location, Date, Population, Total_cases, (total_cases/population)*100 as InfectionRate
+from [Personal Projects]..CovidDeaths
+where location='united states'
+and continent is not null
+order by 1,2
+
+-- Conparing highest infection rate compared to population
+select Location, Population, max(Total_cases) as HighestInfectionCount, Max((total_cases/population))*100 as InfectionRate
+from [Personal Projects]..CovidDeaths
+where continent is not null
+group by location, population
+order by 1,2
+
+-- Country with Highest Death Count per Population
+select Location, Population, max(Total_deaths) as HighestFatalityCount, Max((total_deaths/population))*100 as FatalityRate
+from [Personal Projects]..CovidDeaths
+where continent is not null
+group by location, population
+order by 1,2
+
+
+-- Comparison between CONTINENTS
+-- Highest death count per population between continents
+select continent, max(total_deaths) as HighestFatalityCount, max((total_deaths/population))*100 as FatalityRate
+from [Personal Projects]..CovidDeaths
+where continent is not null
+group by continent
+ order by HighestFatalityCount desc
+
+
+-- Global Numbers
+-- Finding total cases in the world
+select SUM(new_cases) as total_cases, SUM(cast(new_deaths as int)) as total_deaths, SUM(cast(new_deaths as int))/SUM(New_Cases)*100 as DeathPercentage
+from [Personal Projects]..CovidDeaths
+where continent is not null 
+order by 1,2
+
+-- Country with Highest Fatality Rate per Infected Case
+select location, population, sum(new_cases) as Total_cases, sum(new_deaths) as Total_deaths, (sum(new_deaths)/sum(new_cases))*100 as FatalityRate
+from [Personal Projects]..CovidDeaths
+where continent is not null
+group by location, population
+order by FatalityRate desc
+-- Inorder to find the total case in the world we need to find the sum of the max of total cases, but we can not do sum(max())
+-- One way to do it it is to sum the new cases because be cause summing up the total case will result in max case.
+
+
+-- Vaccination
+-- Percent of population that has received at least one Covid Vaccine, by joining two tables
+-- Since new_vaccinations is nvarchar is invalid for calculation we can either use cast() or Convert() to cahnge it to and int
+-- We use bigint instead of int in this case because there is an arithmetic overflow
+select dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations
+, SUM(Cast(vac.new_vaccinations as bigint)) over (partition by dea.location) as PeopleVaccinated_Rolling
+from [Personal Projects]..CovidDeaths dea
+Join [Personal Projects]..CovidVaccinations vac
+	on dea.location = vac.location
+	and dea.date = vac.date
+where dea.continent is not null
+order by 2,3
+--CTE to perform calcultion on partition by in previous query
+with PopvsVac (Continent, Location, Date, Population, New_vaccinations, PeopleVaccinatedRolling)
+as
+(
+select dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations
+, SUM(CONVERT(bigint,vac.new_vaccinations)) over (partition by dea.location Order by dea.location, dea.Date) as PeopleVaccinatedRolling
+from [Personal Projects]..CovidDeaths dea
+Join [Personal Projects]..CovidVaccinations vac
+	on dea.location = vac.location
+	and dea.date = vac.date
+where dea.continent is not null
+)
+select *, (PeopleVaccinatedRolling/Population)*100 as PercentofPopulationVaccinated
+from PopvsVac
+-- TEMP TABLE to perform calculation on partiion in previous query
+-- We add drop table if so that we can update table without having duplicate tables
+drop table if exists #PercentPopulationVaccinated
+create table #PercentPopulationVaccinated
+(
+Continent nvarchar(255),
+Location nvarchar(255),
+Date datetime,
+Population numeric,
+New_vaccinations numeric,
+PeopleVaccinatedRolling numeric
+)
+insert into #PercentPopulationVaccinated
+select dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations
+, SUM(CONVERT(bigint,vac.new_vaccinations)) over (partition by dea.location Order by dea.location, dea.Date) as PeopleVaccinatedRolling
+from [Personal Projects]..CovidDeaths dea
+Join [Personal Projects]..CovidVaccinations vac
+	on dea.location = vac.location
+	and dea.date = vac.date
+
+select *, (PeopleVaccinatedRolling/Population)*100 as PercentofPopulationVaccinated
+from #PercentPopulationVaccinated
+
+
+-- Creating View to store data for later visualizations
+create view PercentPopulationVaccinated as 
+select dea.continent, dea.location, dea.date, dea.population, vac.new_vaccinations
+, SUM(CONVERT(bigint,vac.new_vaccinations)) over (partition by dea.location Order by dea.location, dea.Date) as PeopleVaccinatedRolling
+from [Personal Projects]..CovidDeaths dea
+Join [Personal Projects]..CovidVaccinations vac
+	on dea.location = vac.location
+	and dea.date = vac.date
+where dea.continent is not null
+
+select *
+from PercentPopulationVaccinated
